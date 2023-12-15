@@ -178,21 +178,38 @@ typedef struct {
 typedef struct {
   Arena arena;
   WebClientParams params;
-} WebClientState;
+} WebClient;
 
 typedef struct {
   I32 socket_fd;
 } WebClientConnection;
 
-static void appmain(WebClientState state)
+static void webClient_print_params(WebClient* self, Buf* out) {
+
+    buf_append_str8(out, Str8("======= WebClientParams =====\n"));
+    buf_append_str8(out, Str8("host: "));
+    buf_append_str8(out, self->params.host);
+    buf_append_str8(out, Str8("\n"));
+
+    buf_append_str8(out, Str8("port: "));
+    buf_append_str8(out, self->params.port);
+    buf_append_str8(out, Str8("\n"));
+
+    buf_append_str8(out, Str8("filename: "));
+    buf_append_str8(out, self->params.filename);
+    buf_append_str8(out, Str8("\n"));
+    buf_append_str8(out, Str8("=============================\n"));
+}
+
+static void appmain(WebClient client)
 {
-  Arena *a = &state.arena;
+  Arena *a = &client.arena;
 
   Buf stdout = make_fdbuf(a, 1, 4 * MemSizes_KiB);
-  buf_append_str8(&stdout, Str8("Hello!\n"));
+  webClient_print_params(&client, &stdout);
   buf_flush(&stdout);
   
-  /* i32 socket_fd = open_client_socket(state.params.host, state.params.port); */
+  /* i32 socket_fd = open_client_socket(client.params.host, client.params.port); */
   /* ASSERT(socket_fd > 2); */
 
   /* exit(0); */

@@ -1,6 +1,8 @@
 // Generic C plaform layer for webclient
 #include "webclient.c"
 
+#define _POSIX_C_SOURCE 200809L
+
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,12 +30,48 @@ static Arena newarena_(void)
     return arena;
 }
 
+#define OPTPARSE_IMPLEMENTATION
+#define OPTPARSE_API static
+#include "third_party/optparse.h"
+
 int main(int argc, char** argv) {
-    WebClientState webclient = {0};
+    WebClient webclient = { 0 };
     webclient.arena = newarena_();
 
-    appmain(webclient);
+    struct optparse_long longopts[] = {
+	{ "port", 'p', OPTPARSE_REQUIRED },
+	{ "host", 'i', OPTPARSE_REQUIRED },
+	{ "help", 'h', OPTPARSE_NONE },
+	{ 0 },
+    };
+    int option;
+    struct optparse options;
+    (void)argc;
+    optparse_init(&options, argv);
+    while ((option = optparse_long(&options, longopts, NULL)) != -1) {
+	switch (option) {
+	case 'i':
+	    webclient.params.host = fromcstr_(options.optarg);
+	    break;
+	case 'p':
+	    webclient.params.port = fromcstr_(options.optarg);
+	    break;
+	case 'h':
+	    printf("Usage: %s --host <host> --port <port> <filename>\n", argv[0]);
+	    return ferror(stdout);
+	case '?':
+	    fprintf(stderr, "%s: %s\n", argv[0], options.errmsg);
+	    exit(EXIT_FAILURE);
+	}
+    }
 
+    char* filename;
+    while ((filename = optparse_arg(&options))) {
+	webclient.params.filename = Str8(filename);
+	break;
+    }
+
+    appmain(webclient);
     return ferror(stdout);
 }
 
