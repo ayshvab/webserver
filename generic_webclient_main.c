@@ -1,7 +1,7 @@
 // Generic C plaform layer for webclient
-#include "webclient.c"
-
 #define _POSIX_C_SOURCE 200809L
+
+#include "webclient.c"
 
 #define _CRT_SECURE_NO_WARNINGS
 #include <stdio.h>
@@ -32,7 +32,10 @@ static Arena newarena_(void)
 
 #define OPTPARSE_IMPLEMENTATION
 #define OPTPARSE_API static
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wconversion"
 #include "third_party/optparse.h"
+#pragma GCC diagnostic pop
 
 int main(int argc, char** argv) {
     WebClient webclient = { 0 };
@@ -94,3 +97,60 @@ static void os_fail(void)
     exit(1);
 }
 
+///////////////////////////////////
+// Network API
+
+#include <unistd.h>
+#include <errno.h>
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <netdb.h>
+
+I32 open_client_socket(Str8 hostname, Str8 port) {
+    I32 client_fd;
+    I32 rv;
+    struct addrinfo hints;
+    struct addrinfo* servinfo;
+    struct addrinfo* cur_servinfo;
+
+    memset(&hints, 0, SIZEOF(hints));
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+
+    // I "know" that this Str8.s point to null-terminated string
+    // TODO: make proper cstr from Str8
+    rv = getaddrinfo((char*)hostname.s, (char*)port.s, &hints, &servinfo);
+    if (rv != 0) {
+	fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(rv));
+	os_fail();
+    }
+
+    // loop through all the results and connect to the first we can
+    for (cur_servinfo = servinfo; cur_servinfo != NULL; cur_servinfo = cur_servinfo->ai_next) {
+	if ((client_fd = socket(cur_servinfo->ai_family,
+		                cur_servinfo->ai_socktype,
+		                cur_servinfo->ai_protocol)) == -1) {
+	    perror("socket");
+	    continue;
+	}
+
+	if (connect(client_fd, cur_servinfo->ai_addr, cur_servinfo->ai_addrlen) == -1) {
+	    perror("connect");
+	    close(client_fd);
+	    continue;
+	}
+
+	break; // if we get here, we must have connected successfully
+    }
+
+    if (cur_servinfo == NULL) {
+	fprintf(stderr, "failed to connect\n");
+	os_fail();
+    }
+
+    freeaddrinfo(servinfo);
+
+    return client_fd;
+}

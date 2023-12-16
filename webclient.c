@@ -75,6 +75,9 @@ static B32 os_file_write(I32 fd, Str8);
 // Immediately exit the program with a non-zero status.
 NORETURN static void os_fail(void);
 
+// Network API
+I32 open_client_socket(Str8 hostname, Str8 port);
+
 ///////////////////////////////////
 // Application
 
@@ -209,8 +212,6 @@ static void appmain(WebClient client)
   webClient_print_params(&client, &stdout);
   buf_flush(&stdout);
   
-  /* i32 socket_fd = open_client_socket(client.params.host, client.params.port); */
-  /* ASSERT(socket_fd > 2); */
-
-  /* exit(0); */
+  I32 socket_fd = open_client_socket(client.params.host, client.params.port);
+  ASSERT(socket_fd > 2);
 }
