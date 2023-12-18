@@ -76,7 +76,17 @@ static B32 os_file_write(I32 fd, Str8);
 NORETURN static void os_fail(void);
 
 // Network API
-I32 open_client_socket(Str8 hostname, Str8 port);
+static I32 open_client_socket(Str8 hostname, Str8 port);
+
+static I32 os_tcp_write(I32, Str8);
+
+typedef struct {
+    I32 error_code; // errno code
+    B32 eof;
+    B32 ok;
+} OS_TCP_Read_Result;
+
+static OS_TCP_Read_Result os_tcp_read(I32, U8*, Size);
 
 ///////////////////////////////////
 // Application
@@ -103,24 +113,48 @@ static Byte *arena_alloc(Arena *a, Size size, Size align, Size count, I32 flags)
 
 ///////////////////////////////////
 // Output Buffer
+enum buffer_type_t {
+    BUFFER_TYPE_MEM = 0,
+    BUFFER_TYPE_FILE,
+    BUFFER_TYPE_TCP,
+};
+
 typedef struct {
     U8*   buf;
     Size  cap;
     Size  len;
     I32   fd;
     B32   error;
+    enum buffer_type_t buf_type;
 } Buf;
 
 Buf make_fdbuf(Arena *a, I32 fd, Size len) {
     U8* data = MAKE(a, U8, len, 0);
-    Buf b = { data, len, 0, fd, 0 };
+    Buf b = { data, len, 0, fd, 0, BUFFER_TYPE_FILE };
     return b;
 }
 
+Buf buffer_tcp_make(Arena* a, I32 fd, Size len) {
+    U8* data = MAKE(a, U8, len, 0);
+    Buf b = { data, len, 0, fd, 0, BUFFER_TYPE_TCP };
+    return b;
+}
+
+// TODO: os_*_write(I32, Str8) ----> os_*_write(I32, U8*, Size len)
 void buf_flush(Buf* b) {
     b->error |= b->fd < 0;
     if (!b->error && b->len) {
-	b->error |= os_file_write(b->fd, str8_make_from_span(b->buf, b->len));
+	B32 result = -1;
+	switch (b->buf_type) {
+	default:
+	    os_fail();
+	case BUFFER_TYPE_FILE:
+	    result = os_file_write(b->fd, str8_make_from_span(b->buf, b->len));
+	    break;
+	case BUFFER_TYPE_TCP:
+	    result = os_tcp_write(b->fd, str8_make_from_span(b->buf, b->len));
+	}
+	b->error |= result;
 	b->len = 0;
     }
 }
@@ -179,12 +213,13 @@ typedef struct {
 } WebClientParams;
 
 typedef struct {
-  Arena arena;
-  WebClientParams params;
+    Arena arena;
+    WebClientParams params;
 } WebClient;
 
 typedef struct {
-  I32 socket_fd;
+    I32 socket_fd;
+    Buf tcp_buffer_out;
 } WebClientConnection;
 
 static void webClient_print_params(WebClient* self, Buf* out) {
@@ -204,6 +239,48 @@ static void webClient_print_params(WebClient* self, Buf* out) {
     buf_append_str8(out, Str8("=============================\n"));
 }
 
+static B32 http_send(WebClientConnection* self, Str8 host, Str8 filename) {
+    Buf* tcp_out = &self->tcp_buffer_out;
+    
+    buf_append_str8(tcp_out, Str8("GET "));
+    buf_append_str8(tcp_out, filename);
+    buf_append_str8(tcp_out, Str8(" HTTP/1.1\r\n"));
+		    
+    buf_append_str8(tcp_out, Str8("Host: "));
+    buf_append_str8(tcp_out, host);
+    buf_append_str8(tcp_out, Str8("\r\n"));
+    
+    buf_append_str8(tcp_out, Str8("Connection: close\r\n"));
+    buf_append_str8(tcp_out, Str8("\r\n"));
+    
+    buf_flush(tcp_out);
+    return tcp_out->error;
+}
+
+static B32 http_receive(WebClientConnection* self, Buf* std_out) {
+    Size received_bytes = 0;
+    U8 value;
+    OS_TCP_Read_Result result = {0};
+    do {
+	result = os_tcp_read(self->socket_fd, &value, SIZEOF(value));
+	if (result.ok) {
+	    received_bytes += SIZEOF(value);
+	    buf_append_u8(std_out, value);
+	} else if (result.eof) {
+	    buf_flush(std_out);
+	} else if (result.error_code) {
+	    buf_flush(std_out);
+	    buf_append_str8(std_out, Str8("\nFailed to read from socket. Error code: "));
+	    buf_append_i32(std_out, result.error_code);
+	    buf_append_str8(std_out, Str8("\n"));
+	    buf_flush(std_out);
+	    break;
+	}
+    } while(result.ok);
+
+    return result.ok;
+}
+
 static void appmain(WebClient client)
 {
   Arena *a = &client.arena;
@@ -211,7 +288,15 @@ static void appmain(WebClient client)
   Buf stdout = make_fdbuf(a, 1, 4 * MemSizes_KiB);
   webClient_print_params(&client, &stdout);
   buf_flush(&stdout);
-  
+
+  WebClientConnection connection = {0};
   I32 socket_fd = open_client_socket(client.params.host, client.params.port);
   ASSERT(socket_fd > 2);
+  connection.socket_fd = socket_fd;
+  Buf tcp_out = buffer_tcp_make(a, socket_fd, 4 * MemSizes_KiB);
+  connection.tcp_buffer_out = tcp_out;
+
+  http_send(&connection, client.params.host, client.params.filename);
+
+  http_receive(&connection, &stdout);
 }

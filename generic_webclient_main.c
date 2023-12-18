@@ -70,7 +70,7 @@ int main(int argc, char** argv) {
 
     char* filename;
     while ((filename = optparse_arg(&options))) {
-	webclient.params.filename = Str8(filename);
+	webclient.params.filename = fromcstr_(filename);
 	break;
     }
 
@@ -78,6 +78,8 @@ int main(int argc, char** argv) {
     return ferror(stdout);
 }
 
+// TODO: refactor to
+// B32 os_file_write(I32 fd, U8* s, Size len)
 static B32 os_file_write(int fd, Str8 s)
 {
     ASSERT(fd==1 || fd==2);
@@ -87,10 +89,6 @@ static B32 os_file_write(int fd, Str8 s)
     return ferror(f);
 }
 
-/* static void os_tcp_write(int fd, Str8 s) */
-/* { */
-/*     // TODO */
-/* } */
 
 static void os_fail(void)
 {
@@ -107,6 +105,43 @@ static void os_fail(void)
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <netdb.h>
+
+// Do total write. Returns 0 on success, >0 value on error (errno)
+static I32 os_tcp_write(int fd, Str8 s)
+{
+    U8* beg = s.s;
+    U8* end = s.s + s.len;
+    Size retval = 0;
+    for (; beg < end; beg += retval) {
+	retval = send(fd, beg, end-beg, 0);
+	if (retval == -1) {
+	    I32 error = errno;
+	    perror("os_tcp_write error");
+	    return error;
+	}
+    }
+    return 0;
+}
+
+static OS_TCP_Read_Result os_tcp_read(I32 fd, U8* buf, Size len) {
+    OS_TCP_Read_Result result = {0};
+    Size retval = 0;
+    for (Size count = 0; count < len; count += retval) {
+	/* printf("BEFORE recv\n"); */
+	retval = recv(fd, buf+count, len-count, 0);
+	/* printf("AFTER recv %ld\n", retval); */
+	if (retval < 1) { break; }
+    }
+    if (retval == 0) {
+	result.eof = 1;
+    } else if (retval == -1) {
+	result.error_code = errno;
+	perror("os_tcp_read error");
+    } else {
+	result.ok = 1;
+    }
+    return result;
+}
 
 I32 open_client_socket(Str8 hostname, Str8 port) {
     I32 client_fd;
