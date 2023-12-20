@@ -2,14 +2,14 @@ CC = gcc
 CFLAGS = -std=c99 -g3 -Wall -Wextra -Wconversion -Wdouble-promotion -Wno-comment \
        -Wno-unused-parameter -Wno-unused-function -Wno-sign-conversion -fsanitize=undefined -fsanitize=thread
 
-all: webclient
+all: http_client
 
-webclient: generic_webclient_main.c webclient.c
-	$(CC) $(CFLAGS) generic_webclient_main.c -o webclient
+http_client: generic_http_client_main.c http_client.c
+	$(CC) $(CFLAGS) generic_http_client_main.c -o http_client
 
 tags:
 	ctags -R -e .
 
 clean:
-	-rm -f webclient
-	-rm -f tags TAGS
+	-rm -f http_client
+	-rm -f TAGS
