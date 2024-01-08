@@ -8,6 +8,7 @@ typedef uint32_t  u32;
 typedef uint64_t  u64;
 typedef float     f32;
 typedef double    f64;
+typedef char      byte;
 typedef uintptr_t uptr;
 typedef ptrdiff_t isize;
 typedef size_t    usize;
@@ -47,8 +48,8 @@ static str8 str8_from_ptr(u8 *p, isize len) {
 }
 
 typedef struct {
-    char    *beg;
-    char    *end;
+    byte    *beg;
+    byte    *end;
 } arena;
 
 enum {
@@ -181,7 +182,7 @@ static void appmain(http_client client) {
     u8 *s = (u8*)al.calloc(slen, SIZEOF(u8), al.ctx);
     str8 string = str8_from_ptr(s, slen);
 
-    char *cstr = "Hello!\n";
+    byte *cstr = "Hello!\n";
     memcpy(string.s, cstr, CSTRLEN(cstr));
 
     os_file_write(1, string);
